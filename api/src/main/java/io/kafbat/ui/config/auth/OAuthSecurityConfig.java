@@ -18,6 +18,7 @@ import org.springframework.boot.autoconfigure.security.oauth2.resource.OAuth2Res
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.security.authentication.DelegatingReactiveAuthenticationManager;
 import org.springframework.security.config.annotation.method.configuration.EnableReactiveMethodSecurity;
@@ -42,8 +43,12 @@ import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.security.oauth2.jwt.NimbusReactiveJwtDecoder;
 import org.springframework.security.oauth2.server.resource.introspection.SpringReactiveOpaqueTokenIntrospector;
+import org.springframework.security.web.server.DelegatingServerAuthenticationEntryPoint;
 import org.springframework.security.web.server.SecurityWebFilterChain;
+import org.springframework.security.web.server.authentication.HttpStatusServerEntryPoint;
+import org.springframework.security.web.server.authentication.RedirectServerAuthenticationEntryPoint;
 import org.springframework.security.web.server.authentication.logout.ServerLogoutSuccessHandler;
+import org.springframework.security.web.server.util.matcher.ServerWebExchangeMatchers;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 import reactor.netty.http.client.HttpClient;
@@ -104,6 +109,7 @@ public class OAuthSecurityConfig extends AbstractAuthSecurityConfig {
         )
         .oauth2Login(oauth2 -> oauth2.authenticationManager(delegatingAuthManager))
         .logout(spec -> spec.logoutSuccessHandler(logoutHandler))
+        .exceptionHandling(spec -> spec.authenticationEntryPoint(authenticationEntryPoint()))
         .csrf(ServerHttpSecurity.CsrfSpec::disable);
 
     if (properties.getResourceServer() != null) {
@@ -128,6 +134,15 @@ public class OAuthSecurityConfig extends AbstractAuthSecurityConfig {
     builder.addFilterAt(new StaticFileWebFilter(), SecurityWebFiltersOrder.LOGIN_PAGE_GENERATING);
 
     return builder.build();
+  }
+
+  DelegatingServerAuthenticationEntryPoint authenticationEntryPoint() {
+    var apiEntryPoint = new DelegatingServerAuthenticationEntryPoint.DelegateEntry(
+        ServerWebExchangeMatchers.pathMatchers("/api/**"),
+        new HttpStatusServerEntryPoint(HttpStatus.UNAUTHORIZED));
+    var entryPoint = new DelegatingServerAuthenticationEntryPoint(apiEntryPoint);
+    entryPoint.setDefaultEntryPoint(new RedirectServerAuthenticationEntryPoint(LOGIN_URL));
+    return entryPoint;
   }
 
   @Bean
