@@ -35,6 +35,41 @@ export const OffsetSelector = styled(Input)`
   }
 `;
 
+export const ManualDownloadInput = styled(Input)`
+  width: 100%;
+`;
+
+export const DownloadPaneDescription = styled.p`
+  font-size: 14px;
+  color: ${({ theme }) => theme.table.td.color.normal};
+  line-height: 1.5;
+  margin: 0;
+`;
+
+export const DownloadPaneForm = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+`;
+
+export const DownloadPaneField = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+`;
+
+export const DownloadPaneLabel = styled.label`
+  font-size: 14px;
+  color: ${({ theme }) => theme.table.td.color.normal};
+`;
+
+export const DownloadPaneActions = styled.div`
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding-top: 8px;
+`;
+
 export const DatePickerInput = styled(DatePicker)`
   height: 32px;
   border: 1px ${({ theme }) => theme.select.borderColor.normal} solid;
@@ -66,6 +101,19 @@ export const DatePickerInput = styled(DatePicker)`
 export const Message = styled.div`
   font-size: 14px;
   color: ${({ theme }) => theme.metrics.filters.color.normal};
+`;
+
+export const Warning = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 4px;
+  font-size: 14px;
+  background: ${({ theme }) => theme.alert.color.warning};
+  color: ${({ theme }) => theme.alert.textColor.warning};
 `;
 export const Metric = styled.div`
   color: ${({ theme }) => theme.metrics.filters.color.normal};

@@ -56,10 +56,12 @@ abstract class RangePollingEmitter extends AbstractEmitter {
       TreeMap<TopicPartition, FromToOffset> pollRange = nextPollingRange(new TreeMap<>(), seekOperations);
       log.debug("Starting from offsets {}", pollRange);
 
-      while (!sink.isCancelled() && !pollRange.isEmpty() && !isSendLimitReached()) {
+      while (!sink.isCancelled() && !pollRange.isEmpty() && !isSendLimitReached() && !isBytesLimitReached()) {
         var polled = poll(consumer, sink, pollRange);
         send(sink, polled, cursor);
-        pollRange = nextPollingRange(pollRange, seekOperations);
+        if (!isBytesLimitReached()) {
+          pollRange = nextPollingRange(pollRange, seekOperations);
+        }
       }
       if (sink.isCancelled()) {
         log.debug("Polling finished due to sink cancellation");
@@ -87,19 +89,33 @@ abstract class RangePollingEmitter extends AbstractEmitter {
 
     List<ConsumerRecord<Bytes, Bytes>> result = new ArrayList<>();
     Set<TopicPartition> paused = new HashSet<>();
-    while (!sink.isCancelled() && paused.size() < range.size()) {
+    boolean byteLimitReached = false;
+    while (!sink.isCancelled() && paused.size() < range.size() && !isBytesLimitReached() && !byteLimitReached) {
       var polledRecords = poll(sink, consumer);
-      range.forEach((tp, fromTo) -> {
-        polledRecords.records(tp).stream()
-            .filter(r -> r.offset() < fromTo.to)
-            .forEach(result::add);
+      for (var entry : range.entrySet()) {
+        var tp = entry.getKey();
+        var fromTo = entry.getValue();
+        for (var record : polledRecords.records(tp)) {
+          if (record.offset() >= fromTo.to) {
+            continue;
+          }
+          if (!tryConsumeRecord(record)) {
+            byteLimitReached = true;
+            break;
+          }
+          result.add(record);
+        }
+        if (byteLimitReached) {
+          break;
+        }
 
         //next position is out of target range -> pausing partition
         if (!paused.contains(tp) && consumer.position(tp) >= fromTo.to) {
           paused.add(tp);
           consumer.pause(List.of(tp));
         }
-      });
+      }
+      sendConsuming(sink, polledRecords);
     }
     consumer.resume(paused);
     return result;

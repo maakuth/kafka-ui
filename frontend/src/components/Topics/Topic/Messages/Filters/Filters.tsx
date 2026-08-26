@@ -8,7 +8,11 @@ import { Button } from 'components/common/Button/Button';
 import Search from 'components/common/Search/Search';
 import PlusIcon from 'components/common/Icons/PlusIcon';
 import { getSerdeOptions } from 'components/Topics/Topic/SendMessage/utils';
-import { useSerdes } from 'lib/hooks/api/topicMessages';
+import {
+  downloadTopicMessage,
+  useSerdes,
+} from 'lib/hooks/api/topicMessages';
+import { showServerError } from 'lib/errorHandling';
 import useAppParams from 'lib/hooks/useAppParams';
 import { RouteParamsClusterTopic } from 'lib/paths';
 import { useMessagesFilters } from 'lib/hooks/useMessagesFilters';
@@ -17,6 +21,7 @@ import { useTopicDetails } from 'lib/hooks/api/topics';
 import EditIcon from 'components/common/Icons/EditIcon';
 import CloseIcon from 'components/common/Icons/CloseIcon';
 import FlexBox from 'components/common/FlexBox/FlexBox';
+import SlidingSidebar from 'components/common/SlidingSidebar';
 
 import * as S from './Filters.styled';
 import {
@@ -66,6 +71,10 @@ const Filters: React.FC<FiltersProps> = ({
 
   const { data: topic } = useTopicDetails({ clusterName, topicName });
   const [createdEditedSmartId, setCreatedEditedSmartId] = useState<string>();
+  const [downloadPartition, setDownloadPartition] = useState('');
+  const [downloadOffset, setDownloadOffset] = useState('');
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [isDownloadPaneOpen, setIsDownloadPaneOpen] = useState(false);
 
   const partitions = useMemo(() => {
     return (topic?.partitions || []).reduce<{
@@ -101,6 +110,34 @@ const Filters: React.FC<FiltersProps> = ({
       abortFetchData();
     }
     refreshData();
+  };
+
+  const parsedDownloadPartition = Number(downloadPartition);
+  const parsedDownloadOffset = Number(downloadOffset);
+  const canDownloadMessage =
+    Number.isInteger(parsedDownloadPartition) &&
+    Number.isInteger(parsedDownloadOffset) &&
+    parsedDownloadPartition >= 0 &&
+    parsedDownloadOffset >= 0;
+
+  const handleDownloadMessage = async () => {
+    if (!canDownloadMessage) return;
+    setIsDownloading(true);
+    try {
+      await downloadTopicMessage({
+        clusterName,
+        topicName,
+        partition: parsedDownloadPartition,
+        offset: parsedDownloadOffset,
+        keySerde,
+        valueSerde,
+      });
+      setIsDownloadPaneOpen(false);
+    } catch (error) {
+      showServerError(error as Response);
+    } finally {
+      setIsDownloading(false);
+    }
   };
 
   return (
@@ -200,6 +237,13 @@ const Filters: React.FC<FiltersProps> = ({
           <PlusIcon />
           Add Filters
         </Button>
+        <Button
+          buttonType="secondary"
+          buttonSize="M"
+          onClick={() => setIsDownloadPaneOpen(true)}
+        >
+          Download message
+        </Button>
         {smartFilter && (
           <S.ActiveSmartFilter data-testid="activeSmartFilter">
             <S.SmartFilterName>{smartFilter.id}</S.SmartFilterName>
@@ -220,6 +264,64 @@ const Filters: React.FC<FiltersProps> = ({
           </S.ActiveSmartFilter>
         )}
       </FlexBox>
+      <SlidingSidebar
+        open={isDownloadPaneOpen}
+        onClose={() => setIsDownloadPaneOpen(false)}
+        title="Download message"
+      >
+        <S.DownloadPaneForm>
+          <S.DownloadPaneDescription>
+            Enter a partition and offset to download a specific message without
+            expanding it in the table.
+          </S.DownloadPaneDescription>
+          <S.DownloadPaneField>
+            <S.DownloadPaneLabel htmlFor="download-partition">
+              Partition
+            </S.DownloadPaneLabel>
+            <S.ManualDownloadInput
+              id="download-partition"
+              type="number"
+              min="0"
+              inputSize="M"
+              placeholder="Partition"
+              value={downloadPartition}
+              onChange={({ target: { value } }) => setDownloadPartition(value)}
+            />
+          </S.DownloadPaneField>
+          <S.DownloadPaneField>
+            <S.DownloadPaneLabel htmlFor="download-offset">
+              Offset
+            </S.DownloadPaneLabel>
+            <S.ManualDownloadInput
+              id="download-offset"
+              type="number"
+              min="0"
+              inputSize="M"
+              placeholder="Offset"
+              value={downloadOffset}
+              onChange={({ target: { value } }) => setDownloadOffset(value)}
+            />
+          </S.DownloadPaneField>
+          <S.DownloadPaneActions>
+            <Button
+              buttonType="secondary"
+              buttonSize="M"
+              onClick={() => setIsDownloadPaneOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              buttonType="primary"
+              buttonSize="M"
+              disabled={!canDownloadMessage || isDownloading}
+              inProgress={isDownloading}
+              onClick={handleDownloadMessage}
+            >
+              Download message
+            </Button>
+          </S.DownloadPaneActions>
+        </S.DownloadPaneForm>
+      </SlidingSidebar>
       <FiltersSideBar
         setClose={() => setCreatedEditedSmartId('')}
         smartFilter={smartFilter}

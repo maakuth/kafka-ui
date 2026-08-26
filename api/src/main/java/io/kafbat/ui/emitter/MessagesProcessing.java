@@ -17,53 +17,76 @@ import java.util.Map;
 import java.util.TreeMap;
 import java.util.function.Predicate;
 import javax.annotation.Nullable;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.utils.Bytes;
 import reactor.core.publisher.FluxSink;
 
 @Slf4j
-@RequiredArgsConstructor
 class MessagesProcessing {
 
-  private final ConsumingStats consumingStats = new ConsumingStats();
   private long sentMessages = 0;
 
   private final ConsumerRecordDeserializer deserializer;
   private final Predicate<TopicMessageDTO> filter;
   private final boolean ascendingSortBeforeSend;
   private final @Nullable Integer limit;
+  private final ConsumingStats consumingStats;
+
+  MessagesProcessing(ConsumerRecordDeserializer deserializer,
+                     Predicate<TopicMessageDTO> filter,
+                     boolean ascendingSortBeforeSend,
+                     @Nullable Integer limit,
+                     long bytesLimit) {
+    this.deserializer = deserializer;
+    this.filter = filter;
+    this.ascendingSortBeforeSend = ascendingSortBeforeSend;
+    this.limit = limit;
+    this.consumingStats = new ConsumingStats(bytesLimit);
+  }
 
   boolean limitReached() {
     return limit != null && sentMessages >= limit;
   }
 
+  boolean bytesLimitReached() {
+    return consumingStats.bytesLimitReached();
+  }
+
+  boolean tryConsumeRecord(ConsumerRecord<Bytes, Bytes> record) {
+    return consumingStats.tryConsumeRecord(record);
+  }
+
   void send(FluxSink<TopicMessageEventDTO> sink,
-            Iterable<ConsumerRecord<Bytes, Bytes>> polled,
-            @Nullable Cursor.Tracking cursor) {
-    sortForSending(polled, ascendingSortBeforeSend)
-        .forEach(rec -> {
-          if (!limitReached() && !sink.isCancelled()) {
-            TopicMessageDTO topicMessage = deserializer.deserialize(rec);
-            try {
-              if (filter.test(topicMessage)) {
-                sink.next(
-                    new TopicMessageEventDTO()
-                        .type(TopicMessageEventDTO.TypeEnum.MESSAGE)
-                        .message(topicMessage)
-                );
-                sentMessages++;
-              }
-              if (cursor != null) {
-                cursor.trackOffset(rec.topic(), rec.partition(), rec.offset());
-              }
-            } catch (Exception e) {
-              consumingStats.incFilterApplyError();
-              log.trace("Error applying filter for message {}", topicMessage);
-            }
-          }
-        });
+             Iterable<ConsumerRecord<Bytes, Bytes>> polled,
+             @Nullable Cursor.Tracking cursor,
+             boolean trackConsumption) {
+    for (ConsumerRecord<Bytes, Bytes> rec : sortForSending(polled, ascendingSortBeforeSend)) {
+      if (limitReached() || sink.isCancelled()) {
+        break;
+      }
+      if (trackConsumption && !tryConsumeRecord(rec)) {
+        break;
+      }
+
+      TopicMessageDTO topicMessage = deserializer.deserialize(rec);
+      try {
+        if (filter.test(topicMessage)) {
+          sink.next(
+              new TopicMessageEventDTO()
+                  .type(TopicMessageEventDTO.TypeEnum.MESSAGE)
+                  .message(topicMessage)
+          );
+          sentMessages++;
+        }
+        if (cursor != null) {
+          cursor.trackOffset(rec.topic(), rec.partition(), rec.offset());
+        }
+      } catch (Exception e) {
+        consumingStats.incFilterApplyError();
+        log.trace("Error applying filter for message {}", topicMessage);
+      }
+    }
   }
 
   void sentConsumingInfo(FluxSink<TopicMessageEventDTO> sink, PolledRecords polledRecords) {
