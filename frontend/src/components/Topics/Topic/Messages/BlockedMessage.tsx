@@ -15,21 +15,36 @@ interface Props {
   blockedMessage: TopicMessageBlocked;
   clusterName: string;
   topicName: string;
-  onOpen: (message: TopicMessage) => void;
+  fetchRequestId: number;
+  keySerde?: string;
+  valueSerde?: string;
+  onOpen: (message: TopicMessage, requestId: number) => void;
 }
 
+/** Renders an oversized record placeholder with explicit open and download actions. */
 const BlockedMessage: React.FC<Props> = ({
   blockedMessage,
   clusterName,
   topicName,
+  fetchRequestId,
+  keySerde,
+  valueSerde,
   onOpen,
 }) => {
   const confirm = useConfirm();
   const { currentTimezone } = useTimezone();
   const [isDownloading, setIsDownloading] = React.useState(false);
   const { partition, offset, size, timestamp } = blockedMessage;
-  const messageParams = { clusterName, topicName, partition, offset };
+  const messageParams = {
+    clusterName,
+    topicName,
+    partition,
+    offset,
+    keySerde,
+    valueSerde,
+  };
 
+  /** Confirms the browser risk before fetching and displaying the full record. */
   const openMessage = () => {
     confirm(
       <div>
@@ -37,11 +52,12 @@ const BlockedMessage: React.FC<Props> = ({
         tab slow or unresponsive. Other tabs and Kafka are not affected.
       </div>,
       async () => {
+        const requestId = fetchRequestId;
         try {
           const message = await apiFetch(() =>
             messagesApiClient.downloadTopicMessage(messageParams)
           );
-          onOpen(message);
+          onOpen(message, requestId);
         } catch (error) {
           showAlert('error', {
             title: 'Could not open message',
@@ -59,6 +75,7 @@ const BlockedMessage: React.FC<Props> = ({
     );
   };
 
+  /** Downloads the full record without adding it to the rendered message table. */
   const downloadMessage = async () => {
     setIsDownloading(true);
     try {

@@ -18,6 +18,9 @@ import PreviewModal from './PreviewModal';
 export interface MessagesTableProps {
   messages: TopicMessage[];
   isFetching: boolean;
+  fetchRequestId?: number;
+  keySerde?: string;
+  valueSerde?: string;
   bytesLimitReached?: boolean;
   blockedMessage?: TopicMessageBlocked;
 }
@@ -29,9 +32,13 @@ interface MessagePreviewProps {
   };
 }
 
+/** Displays streamed records and blocked-message recovery actions. */
 const MessagesTable: React.FC<MessagesTableProps> = ({
   messages,
   isFetching,
+  fetchRequestId = 0,
+  keySerde,
+  valueSerde,
   bytesLimitReached = false,
   blockedMessage,
 }) => {
@@ -43,6 +50,8 @@ const MessagesTable: React.FC<MessagesTableProps> = ({
   const isLive = useIsLiveMode();
   const { clusterName, topicName } = useAppParams<RouteParamsClusterTopic>();
   const [openedMessages, setOpenedMessages] = useState<TopicMessage[]>([]);
+  const currentFetchRequestId = React.useRef(fetchRequestId);
+  currentFetchRequestId.current = fetchRequestId;
   const visibleMessages = [...messages, ...openedMessages];
   const [messagesPreview, setMessagesPreview] =
     useLocalStorage<MessagePreviewProps>('message-preview', {
@@ -56,6 +65,10 @@ const MessagesTable: React.FC<MessagesTableProps> = ({
     setKeyFilters(messagesPreview[topicName]?.keyFilters || []);
     setContentFilters(messagesPreview[topicName]?.contentFilters || []);
   }, []);
+
+  useEffect(() => {
+    setOpenedMessages([]);
+  }, [fetchRequestId]);
 
   const setFilters = useCallback(
     (payload: PreviewFilter[]) => {
@@ -141,9 +154,14 @@ const MessagesTable: React.FC<MessagesTableProps> = ({
                 blockedMessage={blockedMessage}
                 clusterName={clusterName}
                 topicName={topicName}
-                onOpen={(message) =>
-                  setOpenedMessages((current) => [...current, message])
-                }
+                fetchRequestId={fetchRequestId}
+                keySerde={keySerde}
+                valueSerde={valueSerde}
+                onOpen={(message, requestId) => {
+                  if (requestId === currentFetchRequestId.current) {
+                    setOpenedMessages((current) => [...current, message]);
+                  }
+                }}
               />
             )}
           {isFetching && !visibleMessages.length && (

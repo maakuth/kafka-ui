@@ -6,13 +6,22 @@ import { RouteParamsClusterTopic } from 'lib/paths';
 import MessagesTable from './MessagesTable';
 import Filters from './Filters/Filters';
 
+/** Connects topic-message polling state to filters and the message table. */
 const Messages: React.FC = () => {
   const { clusterName, topicName } = useAppParams<RouteParamsClusterTopic>();
-  const { messages, isFetching, consumptionStats, phase, abortFetchData } =
-    useTopicMessages({
-      clusterName,
-      topicName,
-    });
+  const {
+    messages,
+    isFetching,
+    fetchRequestId,
+    keySerde,
+    valueSerde,
+    consumptionStats,
+    phase,
+    abortFetchData,
+  } = useTopicMessages({
+    clusterName,
+    topicName,
+  });
 
   return (
     <>
@@ -26,6 +35,9 @@ const Messages: React.FC = () => {
       <MessagesTable
         messages={messages}
         isFetching={isFetching}
+        fetchRequestId={fetchRequestId}
+        keySerde={keySerde}
+        valueSerde={valueSerde}
         bytesLimitReached={!!consumptionStats?.bytesLimitReached}
         blockedMessage={consumptionStats?.blockedMessage}
       />
