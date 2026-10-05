@@ -54,9 +54,14 @@ public class MessageFilters {
   private static final ObjectMapper OBJECT_MAPPER =
       new ObjectMapper().configure(DeserializationFeature.USE_LONG_FOR_INTS, true);
   private static final Pattern HEX_IN_UNICODE_ESCAPE = Pattern.compile("(?<=\\\\u)[0-9A-F]{4}");
+  private static final Predicate<TopicMessageDTO> NOOP = e -> true;
 
   public static Predicate<TopicMessageDTO> noop() {
-    return e -> true;
+    return NOOP;
+  }
+
+  static boolean isNoop(Predicate<TopicMessageDTO> filter) {
+    return filter == NOOP;
   }
 
   public static Predicate<TopicMessageDTO> containsStringFilter(String string) {

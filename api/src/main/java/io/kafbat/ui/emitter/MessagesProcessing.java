@@ -75,13 +75,19 @@ class MessagesProcessing {
     if (limitReached() || sink.isCancelled()) {
       return false;
     }
-    if (trackConsumption && !admitRecord(kafkaRecord, cursor)) {
+    // Without a filter every record is delivered, so admit before deserializing to skip oversized records cheaply.
+    // With a filter only matching records are charged, so non-matching records don't exhaust the byte budget.
+    boolean filtering = !MessageFilters.isNoop(filter);
+    if (trackConsumption && !filtering && !admitRecord(kafkaRecord, cursor)) {
       return false;
     }
 
     TopicMessageDTO topicMessage = deserializer.deserialize(kafkaRecord);
     try {
       if (filter.test(topicMessage)) {
+        if (trackConsumption && filtering && !admitRecord(kafkaRecord, cursor)) {
+          return false;
+        }
         sink.next(
             new TopicMessageEventDTO()
                 .type(TopicMessageEventDTO.TypeEnum.MESSAGE)
