@@ -30,7 +30,7 @@ class MessagesProcessingTest {
   void oversizedRecordAdvancesCursorWithoutDeserializing() {
     var deserializer = mock(ConsumerRecordDeserializer.class);
     var cursor = mock(Cursor.Tracking.class);
-    var processing = new MessagesProcessing(deserializer, message -> true, true, 10, 4);
+    var processing = new MessagesProcessing(deserializer, MessageFilters.noop(), true, 10, 4);
     var kafkaRecord = new ConsumerRecord<Bytes, Bytes>(
         "topic", 2, 42, 0, TimestampType.CREATE_TIME, 0, 5, null,
         Bytes.wrap(new byte[5]), new RecordHeaders(), Optional.empty());
@@ -49,7 +49,7 @@ class MessagesProcessingTest {
     var deserializer = mock(ConsumerRecordDeserializer.class);
     var cursor = mock(Cursor.Tracking.class);
     when(deserializer.deserialize(any())).thenReturn(new TopicMessageDTO());
-    var processing = new MessagesProcessing(deserializer, message -> true, true, 10, 3);
+    var processing = new MessagesProcessing(deserializer, MessageFilters.noop(), true, 10, 3);
     var laterRecord = consumerRecord(0, 1, "2000-01-02T00:00:00+00:00", 3);
     var earlierRecord = consumerRecord(1, 0, "2000-01-01T00:00:00+00:00", 3);
 
@@ -61,6 +61,67 @@ class MessagesProcessingTest {
     verify(cursor).trackOffset("topic", 1, 0);
     verify(deserializer).deserialize(earlierRecord);
     verifyNoMoreInteractions(deserializer);
+  }
+
+  @Test
+  void nonMatchingRecordsDoNotConsumeByteBudgetWhenFiltering() {
+    var deserializer = mock(ConsumerRecordDeserializer.class);
+    var cursor = mock(Cursor.Tracking.class);
+    var nonMatching = consumerRecord(0, 0, "2000-01-01T00:00:00+00:00", 3);
+    var oversizedNonMatching = consumerRecord(0, 1, "2000-01-02T00:00:00+00:00", 10);
+    var matching = consumerRecord(0, 2, "2000-01-03T00:00:00+00:00", 3);
+    when(deserializer.deserialize(any())).thenAnswer(inv ->
+        new TopicMessageDTO().offset(((ConsumerRecord<?, ?>) inv.getArgument(0)).offset()));
+    var processing = new MessagesProcessing(deserializer, message -> message.getOffset() == 2, true, 10, 4);
+
+    var sent = Flux.<TopicMessageEventDTO>create(sink -> {
+      processing.send(sink, List.of(nonMatching, oversizedNonMatching, matching), cursor, true);
+      sink.complete();
+    }).collectList().block();
+
+    assertThat(sent).extracting(e -> e.getMessage().getOffset()).containsExactly(2L);
+    assertThat(processing.bytesLimitReached()).isFalse();
+    verify(cursor).trackOffset("topic", 0, 0);
+    verify(cursor).trackOffset("topic", 0, 1);
+    verify(cursor).trackOffset("topic", 0, 2);
+  }
+
+  @Test
+  void matchingRecordsConsumeByteBudgetWhenFiltering() {
+    var deserializer = mock(ConsumerRecordDeserializer.class);
+    var cursor = mock(Cursor.Tracking.class);
+    var first = consumerRecord(0, 0, "2000-01-01T00:00:00+00:00", 3);
+    var second = consumerRecord(0, 1, "2000-01-02T00:00:00+00:00", 3);
+    when(deserializer.deserialize(any())).thenReturn(new TopicMessageDTO());
+    var processing = new MessagesProcessing(deserializer, message -> true, true, 10, 4);
+
+    var sent = Flux.<TopicMessageEventDTO>create(sink -> {
+      processing.send(sink, List.of(first, second), cursor, true);
+      sink.complete();
+    }).collectList().block();
+
+    assertThat(sent).hasSize(1);
+    assertThat(processing.bytesLimitReached()).isTrue();
+    verify(cursor).trackOffset("topic", 0, 0);
+    verifyNoMoreInteractions(cursor);
+  }
+
+  @Test
+  void oversizedMatchingRecordIsBlockedWhenFiltering() {
+    var deserializer = mock(ConsumerRecordDeserializer.class);
+    var cursor = mock(Cursor.Tracking.class);
+    var oversized = consumerRecord(2, 42, "2000-01-01T00:00:00+00:00", 5);
+    when(deserializer.deserialize(any())).thenReturn(new TopicMessageDTO());
+    var processing = new MessagesProcessing(deserializer, message -> true, true, 10, 4);
+
+    var sent = Flux.<TopicMessageEventDTO>create(sink -> {
+      processing.send(sink, List.of(oversized), cursor, true);
+      sink.complete();
+    }).collectList().block();
+
+    assertThat(sent).isEmpty();
+    assertThat(processing.bytesLimitReached()).isTrue();
+    verify(cursor).trackOffset("topic", 2, 42);
   }
 
 
