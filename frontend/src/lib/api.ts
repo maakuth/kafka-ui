@@ -15,7 +15,31 @@ import {
 } from 'generated-sources';
 import { BASE_PARAMS } from 'lib/constants';
 
-const apiClientConf = new Configuration(BASE_PARAMS);
+const redirectToLogin = () => {
+  const loginPath = `${BASE_PARAMS.basePath}/login`;
+
+  if (window.location.pathname !== loginPath) {
+    window.location.replace(loginPath);
+  }
+};
+
+const fetchWithSessionExpiryRedirect = async (
+  input: RequestInfo | URL,
+  init?: RequestInit
+) => {
+  const response = await fetch(input, init);
+
+  if (response.status === 401) {
+    redirectToLogin();
+  }
+
+  return response;
+};
+
+const apiClientConf = new Configuration({
+  ...BASE_PARAMS,
+  fetchApi: fetchWithSessionExpiryRedirect,
+});
 
 export const ksqlDbApiClient = new KsqlApi(apiClientConf);
 export const topicsApiClient = new TopicsApi(apiClientConf);
